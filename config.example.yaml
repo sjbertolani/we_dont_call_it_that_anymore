@@ -1,0 +1,18 @@
+audio:
+  sample_rate: 48000
+  block_ms: 20
+  delay_ms: 600
+  input_device: null
+  output_device: null
+
+phrases:
+  - from: modeler
+    to: rel UI
+    samples:
+      - samples/rel-ui-02.wav
+      - samples/rel-ui-05.wav
+      - samples/rel-ui-06.wav
+      - samples/rel-ui-07.wav
+      - samples/rel-ui-08.wav
+      - samples/rel-ui-09.wav
+      - samples/rel-ui-10.wav
