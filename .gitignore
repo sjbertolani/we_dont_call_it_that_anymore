@@ -6,3 +6,6 @@ __pycache__/
 
 # Local voice samples are user data; keep them out of source control by default.
 samples/
+
+# Draft/post text stays local unless explicitly published elsewhere.
+BLOGPOST.md

@@ -15,10 +15,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-asr = [
-  "faster-whisper>=1.0.0",
-  "webrtcvad>=2.0.10",
-]
+asr = []
 dev = [
   "pytest>=8.0.0",
 ]

@@ -5,6 +5,7 @@ import signal
 import threading
 import time as time_module
 from dataclasses import dataclass
+from typing import Callable
 
 import numpy as np
 import sounddevice as sd
@@ -38,8 +39,12 @@ class DelayedPassThrough:
     def __init__(self, config: AudioLoopConfig) -> None:
         self.config = config
         self._queues: list[queue.Queue[np.ndarray]] = []
+        self._input_taps: list[Callable[[np.ndarray], None]] = []
         self._stop = threading.Event()
         self._new_queue()
+
+    def add_input_tap(self, tap: Callable[[np.ndarray], None]) -> None:
+        self._input_taps.append(tap)
 
     def _new_queue(self) -> queue.Queue[np.ndarray]:
         blocks: queue.Queue[np.ndarray] = queue.Queue()
@@ -54,6 +59,8 @@ class DelayedPassThrough:
             print(f"input status: {status}", flush=True)
         for blocks in self._queues:
             blocks.put(indata.copy())
+        for tap in self._input_taps:
+            tap(indata.copy())
 
     def output_callback_for(self, blocks: queue.Queue[np.ndarray]):
         def callback(outdata: np.ndarray, frames: int, time, status) -> None:
@@ -224,10 +231,14 @@ class ManualSampleInjectingLoop(DelayedPassThrough):
         *,
         sample: np.ndarray,
         sample_gain: float = 1.0,
+        duck_gain: float = 0.35,
+        mute_after_ms: int = 0,
     ) -> None:
         super().__init__(config)
         self.sample = self._match_channels(sample.astype(np.float32), config.channels) * sample_gain
         self.sample = np.clip(self.sample, -1.0, 1.0)
+        self.duck_gain = duck_gain
+        self.mute_after_frames = int(config.sample_rate * mute_after_ms / 1000)
         self._lock = threading.Lock()
         self._trigger_generation = 0
         self._sample_offsets: dict[int, tuple[int, int | None]] = {}
@@ -264,13 +275,21 @@ class ManualSampleInjectingLoop(DelayedPassThrough):
             sample_offset = 0
             seen_generation = generation
 
-        if sample_offset is not None and sample_offset < len(self.sample):
+        total_replace_frames = len(self.sample) + self.mute_after_frames
+        if sample_offset is not None and sample_offset < total_replace_frames:
             start = sample_offset
             end = min(start + frames, len(self.sample))
-            chunk = self.sample[start:end]
-            outdata.fill(0)
-            outdata[: len(chunk)] = chunk
-            self._sample_offsets[offset_key] = (seen_generation, end)
+            blocks = blocks or self._queues[0]
+            try:
+                block = blocks.get_nowait()
+            except queue.Empty:
+                block = np.zeros((frames, self.config.channels), dtype=np.float32)
+            outdata[:] = block[:frames] * self.duck_gain
+            if start < len(self.sample):
+                chunk = self.sample[start:end]
+                outdata[: len(chunk)] += chunk
+            outdata[:] = np.clip(outdata, -1.0, 1.0)
+            self._sample_offsets[offset_key] = (seen_generation, sample_offset + frames)
             return
 
         self._sample_offsets[offset_key] = (seen_generation, sample_offset)
